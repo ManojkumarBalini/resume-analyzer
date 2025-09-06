@@ -7,7 +7,7 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// CORS configuration
+// CORS configuration for production and development
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, etc.)
@@ -16,10 +16,11 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
-      'https://resume-analyzer-frontend-st49.onrender.com'
+      'https://resume-analyzer-frontend-st49.onrender.com',
+      'https://resume-analyzer-frontend.onrender.com'
     ];
     
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -29,6 +30,7 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
+// Middleware
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -60,16 +62,21 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Serve static files from React build in production
-if (process.env.NODE_ENV === 'production') {
-  // Serve static files from the React app build directory
-  app.use(express.static(path.join(__dirname, '../frontend/build')));
-  
-  // Handle React routing, return all requests to React app
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
+// API information endpoint for root path
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'Resume Analyzer API Server',
+    version: '1.0.0',
+    documentation: 'https://github.com/ManojkumarBalini/resume-analyzer',
+    endpoints: {
+      health: '/health',
+      status: '/api/status',
+      upload: '/api/resumes/upload',
+      getResumes: '/api/resumes',
+      getResume: '/api/resumes/:id'
+    }
   });
-}
+});
 
 // Error handling middleware
 app.use((error, req, res, next) => {
@@ -137,11 +144,6 @@ const startServer = async () => {
       console.log(`🌐 Server URL: http://localhost:${PORT}`);
       console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
       console.log(`📊 API Status: http://localhost:${PORT}/api/status`);
-      
-      if (process.env.NODE_ENV === 'production') {
-        console.log('🏗️  Serving React build files');
-      }
-      
       console.log('='.repeat(50));
     });
     
