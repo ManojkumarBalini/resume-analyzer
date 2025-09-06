@@ -4,9 +4,7 @@ require('dotenv').config();
 // Use connection string for production, individual vars for development
 const config = process.env.DATABASE_URL ? {
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { 
-    rejectUnauthorized: false 
-  } : false
+  ssl: { rejectUnauthorized: false }
 } : {
   host: process.env.PGHOST,
   port: process.env.PGPORT,
@@ -25,7 +23,6 @@ pool.on('connect', () => {
 
 pool.on('error', (err) => {
   console.error('❌ Database connection error:', err);
-  process.exit(-1);
 });
 
 module.exports = pool;
