@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script for building on Render
+# Script for building React app on Render
 echo "Installing dependencies..."
 npm install --legacy-peer-deps
 
