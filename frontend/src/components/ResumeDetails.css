@@ -1,0 +1,211 @@
+.resume-details {
+  text-align: left;
+  margin-top: 30px;
+  animation: fadeIn 0.8s ease-out;
+}
+
+.resume-details h2 {
+  color: #2d3748;
+  margin-bottom: 25px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.resume-details h2 i {
+  color: #667eea;
+  font-size: 28px;
+}
+
+.section {
+  margin-bottom: 35px;
+  padding-bottom: 25px;
+  border-bottom: 1px solid #e2e8f0;
+  animation: fadeIn 0.8s ease-out;
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+.section h3 {
+  color: #667eea;
+  margin-bottom: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.4rem;
+}
+
+.section h3 i {
+  font-size: 20px;
+}
+
+.section h4 {
+  margin: 15px 0 8px;
+  color: #4a5568;
+  font-weight: 600;
+}
+
+.section p {
+  margin: 8px 0;
+  color: #4a5568;
+  line-height: 1.6;
+}
+
+.section strong {
+  color: #2d3748;
+}
+
+.experience-item, .education-item, .project-item {
+  margin-bottom: 20px;
+  padding: 20px;
+  background-color: #f7fafc;
+  border-radius: 10px;
+  border-left: 4px solid #667eea;
+  transition: all 0.3s ease;
+}
+
+.experience-item:hover, .education-item:hover, .project-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.duration {
+  color: #718096;
+  font-style: italic;
+  margin: 5px 0;
+  font-size: 0.9rem;
+}
+
+ul {
+  padding-left: 20px;
+  margin: 10px 0;
+}
+
+li {
+  margin-bottom: 8px;
+  color: #4a5568;
+  position: relative;
+}
+
+li::before {
+  content: '•';
+  color: #667eea;
+  font-weight: bold;
+  display: inline-block;
+  width: 1em;
+  margin-left: -1em;
+}
+
+.analysis {
+  background-color: #f0f9ff;
+  padding: 25px;
+  border-radius: 12px;
+  border-left: 4px solid #764ba2;
+}
+
+.rating {
+  font-size: 1.3rem;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.improvement, .upskill {
+  margin-bottom: 20px;
+}
+
+.improvement h4, .upskill h4 {
+  color: #2d3748;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.improvement h4 i, .upskill h4 i {
+  color: #764ba2;
+}
+
+.upskill-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.skill-pill {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.3s ease;
+}
+
+.skill-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+}
+
+.skill-pill i {
+  font-size: 0.8rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .resume-details {
+    padding: 0 10px;
+  }
+  
+  .section {
+    margin-bottom: 25px;
+    padding-bottom: 20px;
+  }
+  
+  .experience-item, .education-item, .project-item {
+    padding: 15px;
+  }
+  
+  .analysis {
+    padding: 20px;
+  }
+  
+  .upskill-suggestions {
+    gap: 8px;
+  }
+  
+  .skill-pill {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Print styles */
+@media print {
+  .resume-details {
+    margin: 0;
+    padding: 0;
+  }
+  
+  .section {
+    page-break-inside: avoid;
+  }
+  
+  .analysis {
+    border: 1px solid #ccc;
+  }
+}
