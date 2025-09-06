@@ -17,30 +17,36 @@ const ResumeDetails = ({ data }) => {
   const renderExperience = (experiences) => {
     if (!experiences || experiences.length === 0) return <p>No experience information available</p>;
     
-    return experiences.map((exp, index) => (
-      <div key={index} className="experience-item animate-fadeIn delay-${index * 100}">
-        <h4>{exp.role} at {exp.company}</h4>
-        <p className="duration">{exp.duration}</p>
-        {exp.description && (
-          <ul>
-            {exp.description.map((desc, i) => (
-              <li key={i}>{desc}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-    ));
+    return experiences.map((exp, index) => {
+      const delay = index * 100;
+      return (
+        <div key={index} className={`animate-fadeIn delay-${delay}`}>
+          <h4>{exp.role} at {exp.company}</h4>
+          <p className="duration">{exp.duration}</p>
+          {exp.description && (
+            <ul>
+              {exp.description.map((desc, i) => (
+                <li key={i}>{desc}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    });
   };
 
   const renderEducation = (education) => {
     if (!education || education.length === 0) return <p>No education information available</p>;
     
-    return education.map((edu, index) => (
-      <div key={index} className="education-item animate-fadeIn delay-${index * 100}">
-        <h4>{edu.degree}</h4>
-        <p>{edu.institution}, {edu.graduation_year}</p>
-      </div>
-    ));
+    return education.map((edu, index) => {
+      const delay = index * 100;
+      return (
+        <div key={index} className={`animate-fadeIn delay-${delay}`}>
+          <h4>{edu.degree}</h4>
+          <p>{edu.institution}, {edu.graduation_year}</p>
+        </div>
+      );
+    });
   };
 
   const renderUpskillSuggestions = (suggestions) => {
@@ -48,12 +54,15 @@ const ResumeDetails = ({ data }) => {
     
     return (
       <div className="upskill-suggestions">
-        {suggestions.map((suggestion, index) => (
-          <div key={index} className="skill-pill animate-fadeIn delay-${index * 100}">
-            <i className="fas fa-lightbulb"></i>
-            {suggestion}
-          </div>
-        ))}
+        {suggestions.map((suggestion, index) => {
+          const delay = index * 100;
+          return (
+            <div key={index} className={`skill-pill animate-fadeIn delay-${delay}`}>
+              <i className="fas fa-lightbulb"></i>
+              {suggestion}
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -102,15 +111,18 @@ const ResumeDetails = ({ data }) => {
       <div className="section">
         <h3><i className="fas fa-project-diagram"></i> Projects</h3>
         {data.projects && data.projects.length > 0 ? (
-          data.projects.map((project, index) => (
-            <div key={index} className="project-item animate-fadeIn delay-${index * 100}">
-              <h4>{project.name}</h4>
-              <p>{project.description}</p>
-              {project.technologies && project.technologies.length > 0 && (
-                <p><strong>Technologies:</strong> {project.technologies.join(', ')}</p>
-              )}
-            </div>
-          ))
+          data.projects.map((project, index) => {
+            const delay = index * 100;
+            return (
+              <div key={index} className={`project-item animate-fadeIn delay-${delay}`}>
+                <h4>{project.name}</h4>
+                <p>{project.description}</p>
+                {project.technologies && project.technologies.length > 0 && (
+                  <p><strong>Technologies:</strong> {project.technologies.join(', ')}</p>
+                )}
+              </div>
+            );
+          })
         ) : (
           <p>No projects information available</p>
         )}
