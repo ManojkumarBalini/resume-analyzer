@@ -15,7 +15,7 @@ services:
           name: resume-analyzer-db
           property: connectionString
       - key: GEMINI_API_KEY
-        value: AIzaSyAWCvGZfnXV2AginarAJhFd5AwOxs_eyYw
+        value: AIzaSyBz8pb6Xj9oRPLuE4bRO-F-xed1hAgJgYc
 
 databases:
   - name: resume-analyzer-db
