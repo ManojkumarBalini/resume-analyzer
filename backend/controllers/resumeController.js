@@ -7,6 +7,8 @@ const { analyzeResume } = require('../services/geminiService');
 // @access  Private
 const uploadResume = async (req, res) => {
   try {
+    console.log('Upload resume request received');
+    
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -18,12 +20,38 @@ const uploadResume = async (req, res) => {
     console.log(`File details: ${req.file.originalname}, Size: ${req.file.size} bytes`);
 
     // Parse PDF
-    const text = await parsePDF(req.file.buffer);
-    console.log(`PDF parsed successfully. Text length: ${text.length} characters`);
+    let text;
+    try {
+      text = await parsePDF(req.file.buffer);
+      console.log(`PDF parsed successfully. Text length: ${text.length} characters`);
+    } catch (parseError) {
+      console.error('PDF parsing error:', parseError);
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to parse PDF file'
+      });
+    }
 
     // Analyze with Gemini
-    const analysisResult = await analyzeResume(text);
-    console.log('Resume analysis completed');
+    let analysisResult;
+    try {
+      analysisResult = await analyzeResume(text);
+      console.log('Resume analysis completed');
+    } catch (analysisError) {
+      console.error('Analysis error:', analysisError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to analyze resume content'
+      });
+    }
+
+    // Validate analysis result
+    if (!analysisResult) {
+      return res.status(500).json({
+        success: false,
+        error: 'Analysis returned empty result'
+      });
+    }
 
     // Save to database with user reference
     const resumeData = {
@@ -56,6 +84,8 @@ const uploadResume = async (req, res) => {
 // @access  Private
 const getResumes = async (req, res) => {
   try {
+    console.log('Fetching resumes for user:', req.user.id);
+    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -65,13 +95,11 @@ const getResumes = async (req, res) => {
 
     // Add search functionality
     if (req.query.search) {
-      query.$text = { $search: req.query.search };
-    }
-
-    // Add filter by skills
-    if (req.query.skills) {
-      const skills = req.query.skills.split(',');
-      query.technical_skills = { $in: skills.map(skill => new RegExp(skill, 'i')) };
+      query.$or = [
+        { name: { $regex: req.query.search, $options: 'i' } },
+        { email: { $regex: req.query.search, $options: 'i' } },
+        { 'technical_skills': { $in: [new RegExp(req.query.search, 'i')] } }
+      ];
     }
 
     const resumes = await Resume.find(query)
@@ -82,6 +110,8 @@ const getResumes = async (req, res) => {
 
     const total = await Resume.countDocuments(query);
     const totalPages = Math.ceil(total / limit);
+
+    console.log(`Found ${resumes.length} resumes for user ${req.user.id}`);
 
     res.json({
       success: true,
@@ -109,18 +139,22 @@ const getResumes = async (req, res) => {
 // @access  Private
 const getResume = async (req, res) => {
   try {
+    console.log('Fetching resume:', req.params.id, 'for user:', req.user.id);
+    
     const resume = await Resume.findOne({
       _id: req.params.id,
       user: req.user.id
     });
 
     if (!resume) {
+      console.log('Resume not found:', req.params.id);
       return res.status(404).json({
         success: false,
         error: 'Resume not found or access denied'
       });
     }
 
+    console.log('Resume found:', resume._id);
     res.json({
       success: true,
       data: resume
@@ -217,15 +251,17 @@ const deleteResume = async (req, res) => {
 // @access  Private
 const getResumeStats = async (req, res) => {
   try {
+    console.log('Fetching resume stats for user:', req.user.id);
+    
     const totalResumes = await Resume.countDocuments({ user: req.user.id });
     
-    const averageRating = await Resume.aggregate([
-      { $match: { user: req.user.id } },
+    const averageRatingResult = await Resume.aggregate([
+      { $match: { user: req.user._id } },
       { $group: { _id: null, avgRating: { $avg: '$resume_rating' } } }
     ]);
     
     const skillStats = await Resume.aggregate([
-      { $match: { user: req.user.id } },
+      { $match: { user: req.user._id } },
       { $unwind: '$technical_skills' },
       { $group: { _id: '$technical_skills', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
@@ -233,7 +269,7 @@ const getResumeStats = async (req, res) => {
     ]);
 
     const monthlyStats = await Resume.aggregate([
-      { $match: { user: req.user.id } },
+      { $match: { user: req.user._id } },
       {
         $group: {
           _id: {
@@ -247,14 +283,18 @@ const getResumeStats = async (req, res) => {
       { $limit: 6 }
     ]);
 
+    const stats = {
+      totalResumes,
+      averageRating: averageRatingResult[0]?.avgRating || 0,
+      topSkills: skillStats,
+      monthlyUploads: monthlyStats
+    };
+
+    console.log('Resume stats:', stats);
+    
     res.json({
       success: true,
-      data: {
-        totalResumes,
-        averageRating: averageRating[0]?.avgRating || 0,
-        topSkills: skillStats,
-        monthlyUploads: monthlyStats
-      }
+      data: stats
     });
   } catch (error) {
     console.error('Error fetching resume stats:', error);
