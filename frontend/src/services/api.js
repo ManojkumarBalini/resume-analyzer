@@ -3,10 +3,12 @@ import axios from 'axios';
 // Use environment variable for API base URL
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://resume-analyzer-backend-3dao.onrender.com/api';
 
+console.log('API Base URL:', API_BASE_URL);
+
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000,
+  timeout: 120000, // 2 minutes for large files
 });
 
 // Add token to requests
@@ -16,18 +18,26 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    console.log('API Request:', config.method?.toUpperCase(), config.url);
     return config;
   },
   (error) => {
+    console.error('API Request Error:', error);
     return Promise.reject(error);
   }
 );
 
-// Handle token expiration
+// Handle responses and errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('API Response:', response.status, response.config.url);
+    return response;
+  },
   (error) => {
+    console.error('API Error:', error.response?.status, error.config?.url, error.message);
+    
     if (error.response?.status === 401) {
+      console.log('Authentication failed, redirecting to login');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       // Only redirect if not already on auth pages
@@ -36,6 +46,7 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+    
     return Promise.reject(error);
   }
 );
