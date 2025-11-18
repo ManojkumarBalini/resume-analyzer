@@ -16,6 +16,7 @@ const ResumeUploader = () => {
       if (selectedFile.type === 'application/pdf') {
         setFile(selectedFile);
         setError('');
+        setAnalysis(null); // Clear previous analysis
       } else {
         setError('Please select a PDF file');
         setFile(null);
@@ -33,6 +34,7 @@ const ResumeUploader = () => {
 
     setLoading(true);
     setError('');
+    setAnalysis(null);
     setProgress(0);
     
     // Simulate progress for better UX
@@ -47,17 +49,30 @@ const ResumeUploader = () => {
     }, 300);
     
     try {
+      console.log('Starting file upload...');
       const formData = new FormData();
       formData.append('resume', file);
       
       const response = await uploadResume(formData);
-      setAnalysis(response.data);
-      setProgress(100);
+      console.log('Upload response:', response.data);
+      
+      if (response.data.success) {
+        setAnalysis(response.data.data);
+        setProgress(100);
+        console.log('Analysis completed successfully');
+      } else {
+        throw new Error(response.data.error || 'Upload failed');
+      }
       
       // Clear progress after success
       setTimeout(() => setProgress(0), 1000);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to upload resume');
+      console.error('Upload error:', err);
+      const errorMessage = err.response?.data?.error || 
+                          err.response?.data?.message || 
+                          err.message || 
+                          'Failed to upload resume. Please try again.';
+      setError(errorMessage);
       setProgress(0);
     } finally {
       clearInterval(progressInterval);
@@ -71,6 +86,10 @@ const ResumeUploader = () => {
         <i className="fas fa-file-pdf"></i>
         Upload Resume for Analysis
       </h2>
+      
+      <p className="upload-description">
+        Upload your PDF resume to get AI-powered analysis and improvement suggestions.
+      </p>
       
       <form onSubmit={handleSubmit} className="upload-form">
         <div className="file-input-container">
@@ -93,27 +112,36 @@ const ResumeUploader = () => {
             <div className="file-subtext">
               {file ? 'Click to change file' : 'Click to browse your files'}
             </div>
+            <div className="file-size">
+              {file ? `Size: ${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Max size: 5MB'}
+            </div>
           </label>
         </div>
         
         {progress > 0 && (
           <div className="upload-progress">
-            <div 
-              className="progress-bar" 
-              style={{ width: `${progress}%` }}
-            ></div>
+            <div className="progress-text">
+              {progress < 100 ? 'Processing...' : 'Complete!'}
+            </div>
+            <div className="progress-bar-container">
+              <div 
+                className="progress-bar" 
+                style={{ width: `${progress}%` }}
+              ></div>
+            </div>
+            <div className="progress-percentage">{progress}%</div>
           </div>
         )}
         
         <button 
           type="submit" 
           disabled={!file || loading}
-          className="upload-button"
+          className={`upload-button ${(!file || loading) ? 'disabled' : ''}`}
         >
           {loading ? (
             <>
               <i className="fas fa-spinner fa-spin"></i>
-              Analyzing...
+              Analyzing Resume...
             </>
           ) : (
             <>
@@ -127,11 +155,18 @@ const ResumeUploader = () => {
       {error && (
         <div className="error-message">
           <i className="fas fa-exclamation-circle"></i>
-          {error}
+          <div className="error-content">
+            <strong>Upload Failed</strong>
+            <p>{error}</p>
+          </div>
         </div>
       )}
       
-      {analysis && <ResumeDetails data={analysis} />}
+      {analysis && (
+        <div className="analysis-result">
+          <ResumeDetails data={analysis} />
+        </div>
+      )}
     </div>
   );
 };
