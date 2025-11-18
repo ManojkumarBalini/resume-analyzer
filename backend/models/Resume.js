@@ -88,7 +88,7 @@ const resumeSchema = new mongoose.Schema({
   },
   summary: {
     type: String,
-    default: null
+    default: "No summary available"
   },
   work_experience: [workExperienceSchema],
   education: [educationSchema],
@@ -104,7 +104,7 @@ const resumeSchema = new mongoose.Schema({
   },
   improvement_areas: {
     type: String,
-    default: null
+    default: "No specific improvement areas identified"
   },
   upskill_suggestions: [String],
   analysis_date: {
@@ -122,11 +122,11 @@ const resumeSchema = new mongoose.Schema({
 
 // Index for better query performance
 resumeSchema.index({ user: 1, createdAt: -1 });
-resumeSchema.index({ 'technical_skills': 'text', 'summary': 'text' });
+resumeSchema.index({ name: 'text', email: 'text', summary: 'text' });
 
 // Virtual for formatted date
 resumeSchema.virtual('formatted_date').get(function() {
-  return this.analysis_date.toLocaleDateString('en-US', {
+  return this.createdAt.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
