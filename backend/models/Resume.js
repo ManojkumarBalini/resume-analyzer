@@ -1,80 +1,139 @@
-const pool = require('../config/database');
+const mongoose = require('mongoose');
 
-const createResumeTable = async () => {
-  const query = `
-    CREATE TABLE IF NOT EXISTS resumes (
-      id SERIAL PRIMARY KEY,
-      file_name VARCHAR(255) NOT NULL,
-      uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      name VARCHAR(255),
-      email VARCHAR(255),
-      phone VARCHAR(50),
-      linkedin_url VARCHAR(255),
-      portfolio_url VARCHAR(255),
-      summary TEXT,
-      work_experience JSONB,
-      education JSONB,
-      technical_skills JSONB,
-      soft_skills JSONB,
-      projects JSONB,
-      certifications JSONB,
-      resume_rating INTEGER,
-      improvement_areas TEXT,
-      upskill_suggestions JSONB
-    );
-  `;
-  
-  await pool.query(query);
-};
+const workExperienceSchema = new mongoose.Schema({
+  role: {
+    type: String,
+    required: true
+  },
+  company: {
+    type: String,
+    required: true
+  },
+  duration: {
+    type: String,
+    required: true
+  },
+  description: [String]
+});
 
-const saveResume = async (fileName, analysisResult) => {
-  const {
-    name, email, phone, linkedin_url, portfolio_url, summary,
-    work_experience, education, technical_skills, soft_skills,
-    projects, certifications, resume_rating, improvement_areas, upskill_suggestions
-  } = analysisResult;
+const educationSchema = new mongoose.Schema({
+  degree: {
+    type: String,
+    required: true
+  },
+  institution: {
+    type: String,
+    required: true
+  },
+  graduation_year: {
+    type: String,
+    required: true
+  }
+});
 
-  const query = `
-    INSERT INTO resumes (
-      file_name, name, email, phone, linkedin_url, portfolio_url, summary,
-      work_experience, education, technical_skills, soft_skills,
-      projects, certifications, resume_rating, improvement_areas, upskill_suggestions
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-    RETURNING *;
-  `;
+const projectSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true
+  },
+  description: {
+    type: String,
+    required: true
+  },
+  technologies: [String]
+});
 
-  const values = [
-    fileName, name, email, phone, linkedin_url, portfolio_url, summary,
-    JSON.stringify(work_experience), JSON.stringify(education), 
-    JSON.stringify(technical_skills), JSON.stringify(soft_skills),
-    JSON.stringify(projects), JSON.stringify(certifications), 
-    resume_rating, improvement_areas, JSON.stringify(upskill_suggestions)
-  ];
+const resumeSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: [true, 'User ID is required']
+  },
+  file_name: {
+    type: String,
+    required: [true, 'File name is required'],
+    trim: true
+  },
+  original_name: {
+    type: String,
+    required: [true, 'Original file name is required']
+  },
+  file_size: {
+    type: Number,
+    required: true
+  },
+  file_mimetype: {
+    type: String,
+    required: true
+  },
+  name: {
+    type: String,
+    default: null
+  },
+  email: {
+    type: String,
+    default: null
+  },
+  phone: {
+    type: String,
+    default: null
+  },
+  linkedin_url: {
+    type: String,
+    default: null
+  },
+  portfolio_url: {
+    type: String,
+    default: null
+  },
+  summary: {
+    type: String,
+    default: null
+  },
+  work_experience: [workExperienceSchema],
+  education: [educationSchema],
+  technical_skills: [String],
+  soft_skills: [String],
+  projects: [projectSchema],
+  certifications: [String],
+  resume_rating: {
+    type: Number,
+    min: 1,
+    max: 10,
+    default: 5
+  },
+  improvement_areas: {
+    type: String,
+    default: null
+  },
+  upskill_suggestions: [String],
+  analysis_date: {
+    type: Date,
+    default: Date.now
+  },
+  is_public: {
+    type: Boolean,
+    default: false
+  },
+  tags: [String]
+}, {
+  timestamps: true
+});
 
-  const result = await pool.query(query, values);
-  return result.rows[0];
-};
+// Index for better query performance
+resumeSchema.index({ user: 1, createdAt: -1 });
+resumeSchema.index({ 'technical_skills': 'text', 'summary': 'text' });
 
-const getAllResumes = async () => {
-  const query = `
-    SELECT id, file_name, uploaded_at, name, email, phone, resume_rating 
-    FROM resumes 
-    ORDER BY uploaded_at DESC;
-  `;
-  
-  const result = await pool.query(query);
-  return result.rows;
-};
+// Virtual for formatted date
+resumeSchema.virtual('formatted_date').get(function() {
+  return this.analysis_date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+});
 
-const getResumeById = async (id) => {
-  const query = 'SELECT * FROM resumes WHERE id = $1;';
-  const result = await pool.query(query, [id]);
-  return result.rows[0];
-};
+// Ensure virtual fields are serialized
+resumeSchema.set('toJSON', { virtuals: true });
 
-module.exports = {
-  createResumeTable,
-  saveResume,
-  getAllResumes,
-  getResumeById
-};
+module.exports = mongoose.model('Resume', resumeSchema);
