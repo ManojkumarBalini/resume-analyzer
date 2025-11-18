@@ -1,13 +1,12 @@
 import axios from 'axios';
 
-// Use environment variable for API base URL or fallback to Render URL
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://resume-analyzer-backend-3dao.onrender.com/api' 
-  : 'http://localhost:4000/api';
+// Use environment variable for API base URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://resume-analyzer-backend-3dao.onrender.com/api';
 
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 60000,
 });
 
 // Add token to requests
@@ -31,7 +30,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Only redirect if not already on auth pages
+      if (!window.location.pathname.includes('/login') && 
+          !window.location.pathname.includes('/register')) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -55,6 +58,8 @@ export const updateProfile = (userData) => {
 };
 
 export const logout = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
   return api.get('/auth/logout');
 };
 
@@ -64,7 +69,7 @@ export const uploadResume = (formData) => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
-    timeout: 60000, // 60 seconds timeout for large files
+    timeout: 120000, // 2 minutes for large files
   });
 };
 
@@ -86,6 +91,11 @@ export const deleteResume = (id) => {
 
 export const getResumeStats = () => {
   return api.get('/resumes/stats/overview');
+};
+
+// Health check
+export const healthCheck = () => {
+  return api.get('/health');
 };
 
 export default api;
