@@ -1,40 +1,43 @@
 // geminiService.js
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Create the client once (reads API key from env)
+// Initialize client once (reads API key from env)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// List of candidate models to try (best -> fallback)
+// Candidate models (best -> fallback)
 const CANDIDATE_MODELS = [
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-2.0-flash",
   "gemini-1.5-pro",
-  "gemini-1.5-flash" // last resort; may not be available in some projects
+  "gemini-1.5-flash"
 ];
 
-// Main exported function (matches your original signature)
-const analyzeResume = async (text) => {
-  console.log("Starting Gemini analysis...");
+// Main exported function
+async function analyzeResume(text) {
+  console.log("=== Starting Gemini analysis ===");
   if (!process.env.GEMINI_API_KEY) {
     console.error("Gemini API key not found in environment variables");
-    throw new Error("Gemini API key not configured");
+    throw new Error("GEMINI_API_KEY not configured");
   }
 
-  // Build prompt (same shape you already had)
-  const prompt = `Analyze the following resume text and extract information into a structured JSON format. Be thorough and extract as much real information as possible.
+  // Build a careful prompt asking for JSON only and preserving URLs
+  const prompt = `
+Extract structured resume information from the text below and return ONLY a valid JSON object (no explanation, no markdown, no extra text).
+Be thorough and include complete URLs (with https://) for LinkedIn, GitHub, portfolio or any profile links.
+If any field is missing, return null for that field.
 
 RESUME TEXT:
 ${text.substring(0, 15000)}
 
-Return a valid JSON object with this structure:
+Return JSON with this exact structure:
 {
   "name": "string or null",
   "email": "string or null",
   "phone": "string or null",
   "linkedin_url": "string or null",
   "portfolio_url": "string or null",
-  "summary": "string describing the candidate's profile and experience",
+  "summary": "string or null",
   "work_experience": [
     {
       "role": "string",
@@ -60,195 +63,296 @@ Return a valid JSON object with this structure:
     }
   ],
   "certifications": ["string"],
-  "resume_rating": number between 1-10,
-  "improvement_areas": "string with specific suggestions",
+  "resume_rating": number,
+  "improvement_areas": "string",
   "upskill_suggestions": ["string"]
 }
+`;
 
-Extract real information from the resume text. If information is missing, use reasonable defaults.`;
+  console.log("Prompt length:", prompt.length);
 
-  console.log("Calling Gemini API with prompt length:", prompt.length);
-
-  // Try models in order until one works
   let lastError = null;
+
   for (const modelName of CANDIDATE_MODELS) {
     try {
       console.log(`Trying model: ${modelName}`);
       const model = genAI.getGenerativeModel({ model: modelName });
 
-      // generateContent accepts a string prompt in many SDK examples
       const result = await model.generateContent(prompt);
 
-      // In this SDK `result.response` is usually a Promise-like or value containing .text()
-      const response = await result.response;
-      let jsonText = response.text();
-
-      console.log(`Raw Gemini response received (model ${modelName}), length:`, jsonText.length || 0);
-
-      // Cleanup: remove markdown fences and extract JSON block
-      jsonText = jsonText.replace(/```json|```/g, "").trim();
-      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) jsonText = jsonMatch[0];
-
-      console.log('Cleaned JSON text snippet:', jsonText.substring(0, 200) + '...');
-
-      // Try parse
-      const analysisResult = JSON.parse(jsonText);
-
-      // If parsed OK, fill missing data and return
-      console.log(`Model ${modelName} succeeded.`);
-      return validateAndFill(analysisResult, text);
-
-    } catch (err) {
-      lastError = err;
-      const msg = (err && err.toString && err.toString()) || String(err);
-      console.warn(`Model ${modelName} failed:`, msg);
-
-      // If it's a "model not found / not supported" (404) then try next model.
-      // Detect common error strings from SDK/HTTP responses:
-      if (/not found/i.test(msg) || /is not found for API version/i.test(msg) || /model.*not.*found/i.test(msg) || (err && err.statusCode === 404)) {
-        console.log(`Model ${modelName} appears unavailable for this project — trying next candidate.`);
-        continue; // try next model
+      // getResponseText handles multiple SDK response shapes
+      const rawText = await getResponseText(result);
+      if (!rawText || rawText.trim().length === 0) {
+        throw new Error(`Empty response from model ${modelName}`);
       }
 
-      // For other errors (quota, auth, etc.) break and fallback to local extraction:
-      console.error(`Non-model-lookup error for ${modelName}. Will fallback to local extraction. Error:`, msg);
+      console.log(`Raw response length (model ${modelName}):`, rawText.length);
+
+      // Clean up fences and try to extract JSON block
+      let jsonText = rawText.replace(/```json|```/g, "").trim();
+
+      // Try to extract first {...} JSON object
+      const match = jsonText.match(/\{[\s\S]*\}/);
+      if (match) jsonText = match[0];
+
+      // Try parse
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch (parseErr) {
+        // If parsing fails, try to salvage by fixing trailing commas, etc.
+        const fixed = tryFixJson(jsonText);
+        parsed = JSON.parse(fixed);
+      }
+
+      console.log(`Model ${modelName} succeeded and returned valid JSON.`);
+      return fillMissingData(parsed, text);
+    } catch (err) {
+      lastError = err;
+      const msg = err && err.toString ? err.toString() : String(err);
+      console.warn(`Model ${modelName} failed:`, msg);
+
+      // If model not found / unsupported -> try next model
+      if (/not found/i.test(msg) || /is not found for api version/i.test(msg) || /is not supported/i.test(msg) || (err && err.statusCode === 404)) {
+        console.log(`Model ${modelName} unavailable for this project — trying next candidate.`);
+        continue;
+      }
+
+      // For other errors (quota, auth, unexpected), log and break to fallback
+      console.error(`Unrecoverable error on model ${modelName}:`, msg);
       break;
     }
   }
 
-  console.error("All model attempts failed or an unrecoverable error occurred. Falling back to extraction.");
-  console.error("Last Gemini error:", lastError && lastError.toString ? lastError.toString() : lastError);
+  console.error("All model attempts failed or an unrecoverable error occurred. Falling back to local extraction.");
+  if (lastError) console.error("Last error:", lastError.toString ? lastError.toString() : lastError);
 
-  // If models failed, use your enhanced extraction fallback
   return getEnhancedAnalysisWithExtraction(text);
-};
+}
 
-// -----------------------------
-// Validate / Fill missing fields
-// -----------------------------
-function validateAndFill(analysisResult, text) {
+// Helper: robustly get text from SDK result
+async function getResponseText(result) {
+  // Common SDK shape: result.response which may be a value with .text() or an object
+  try {
+    if (!result) return null;
+
+    if (result.response) {
+      const resp = await result.response;
+      if (resp == null) return null;
+      if (typeof resp.text === "function") {
+        return await resp.text();
+      }
+      // some shapes may expose output[0].content[0].text
+      if (resp.output && Array.isArray(resp.output) && resp.output.length > 0) {
+        const first = resp.output[0];
+        if (first.content && Array.isArray(first.content) && first.content.length > 0) {
+          // find the first item with text
+          for (const c of first.content) {
+            if (c.type === "output_text" && typeof c.text === "string") return c.text;
+            if (typeof c.text === "string") return c.text;
+          }
+        }
+      }
+      // fallback to stringifying resp
+      return typeof resp === "string" ? resp : JSON.stringify(resp);
+    }
+
+    // Some SDKs return result.output (older shapes)
+    if (result.output && Array.isArray(result.output) && result.output.length > 0) {
+      const out = result.output[0];
+      if (out.content && Array.isArray(out.content) && out.content.length > 0) {
+        for (const c of out.content) {
+          if (typeof c.text === "string") return c.text;
+        }
+      }
+      if (typeof out.text === "string") return out.text;
+    }
+
+    // As last resort, stringify
+    return typeof result === "string" ? result : JSON.stringify(result);
+  } catch (e) {
+    console.warn("getResponseText failed:", e && e.toString ? e.toString() : e);
+    return null;
+  }
+}
+
+// Try to fix common JSON problems (trailing commas, unquoted keys)
+function tryFixJson(s) {
+  let fixed = s;
+
+  // Remove trailing commas in objects/arrays
+  fixed = fixed.replace(/,\s*([}\]])/g, "$1");
+
+  // If keys are unquoted, attempt naive quoting (dangerous but helpful sometimes)
+  fixed = fixed.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+
+  return fixed;
+}
+
+// Fill missing fields using robust extraction fallbacks
+function fillMissingData(data, text) {
   return {
-    name: analysisResult.name || extractNameFromText(text),
-    email: analysisResult.email || extractEmailFromText(text),
-    phone: analysisResult.phone || extractPhoneFromText(text),
-    linkedin_url: analysisResult.linkedin_url || null,
-    portfolio_url: analysisResult.portfolio_url || null,
-    summary: analysisResult.summary || "Experienced professional with strong technical skills.",
-    work_experience: analysisResult.work_experience || getDefaultWorkExperience(),
-    education: analysisResult.education || getDefaultEducation(),
-    technical_skills: analysisResult.technical_skills || extractSkillsFromText(text),
-    soft_skills: analysisResult.soft_skills || ["Communication", "Teamwork", "Problem Solving"],
-    projects: analysisResult.projects || getDefaultProjects(),
-    certifications: analysisResult.certifications || [],
-    resume_rating: typeof analysisResult.resume_rating === "number" ? analysisResult.resume_rating : 7,
-    improvement_areas: analysisResult.improvement_areas || "Consider adding more quantifiable achievements and specific project outcomes.",
-    upskill_suggestions: analysisResult.upskill_suggestions || ["Learn cloud technologies", "Practice system design", "Explore DevOps practices"]
+    name: data.name || extractNameFromText(text),
+    email: data.email || extractEmailFromText(text),
+    phone: data.phone || extractPhoneFromText(text),
+    linkedin_url: data.linkedin_url || extractLinkedIn(text),
+    portfolio_url: data.portfolio_url || extractPortfolio(text),
+    summary: data.summary || generateSummaryFromText(text, data.name),
+    work_experience: Array.isArray(data.work_experience) ? data.work_experience : getDefaultWorkExperience(),
+    education: Array.isArray(data.education) ? data.education : getDefaultEducation(),
+    technical_skills: Array.isArray(data.technical_skills) && data.technical_skills.length > 0 ? data.technical_skills : extractSkillsFromText(text),
+    soft_skills: Array.isArray(data.soft_skills) && data.soft_skills.length > 0 ? data.soft_skills : ["Communication", "Teamwork", "Problem Solving"],
+    projects: Array.isArray(data.projects) ? data.projects : getDefaultProjects(),
+    certifications: Array.isArray(data.certifications) ? data.certifications : [],
+    resume_rating: typeof data.resume_rating === "number" ? data.resume_rating : calculateResumeRating(text),
+    improvement_areas: data.improvement_areas || generateImprovementAreas(text),
+    upskill_suggestions: Array.isArray(data.upskill_suggestions) && data.upskill_suggestions.length > 0 ? data.upskill_suggestions : generateUpskillSuggestions(extractSkillsFromText(text))
   };
 }
 
-// -----------------------------
-// Your existing fallback extraction functions
-// (paste your implementations here; I kept names identical)
-// -----------------------------
+/* -----------------------
+   Fallback / extraction functions
+   ----------------------- */
+
 function extractEmailFromText(text) {
-  const emailMatch = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
-  return emailMatch ? emailMatch[0] : null;
+  const m = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  return m ? m[0] : null;
 }
 
 function extractPhoneFromText(text) {
-  const phoneMatch = text.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-  return phoneMatch ? phoneMatch[0] : null;
+  // Various phone formats including +91 and 10-digit numbers
+  const m = text.match(/(\+?\d{1,3}[-.\s]?)?(\d{10}|\d{3}[-.\s]\d{3}[-.\s]\d{4})/);
+  return m ? m[0].trim() : null;
+}
+
+function extractURLSFromText(text) {
+  // capture https? urls
+  const urls = [];
+  const regex = /https?:\/\/[^\s)>\]]+/gi;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    urls.push(match[0].replace(/[.,;)]$/g, ""));
+  }
+  return urls;
+}
+
+function extractLinkedIn(text) {
+  // Try to find explicit linkedin url
+  const ll = extractURLSFromText(text).find(u => /linkedin\.com/i.test(u));
+  if (ll) return ll;
+  // fallback: sometimes text includes 'linkedin: username' -> try capture
+  const m = text.match(/linkedin[:\s]*\/?in\/?([A-Za-z0-9-_%]+)/i);
+  if (m) {
+    return `https://www.linkedin.com/in/${m[1]}`;
+  }
+  return null;
+}
+
+function extractPortfolio(text) {
+  // Look for github, gitlab, vercel, netlify, portfolio keywords
+  const urls = extractURLSFromText(text);
+  const portfolio = urls.find(u => /(github\.com|gitlab\.com|behance\.net|dribbble\.com|vercel\.app|netlify\.app|portfolio)/i.test(u));
+  if (portfolio) return portfolio;
+  // fallback patterns like "github: username" or "github.com/username"
+  const m = text.match(/(github\.com\/[A-Za-z0-9-._]+)/i);
+  if (m) {
+    return m[0].startsWith("http") ? m[0] : `https://${m[0]}`;
+  }
+  return null;
 }
 
 function extractNameFromText(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  for (let i = 0; i < Math.min(5, lines.length); i++) {
-    const line = lines[i];
-    if (line && line.split(' ').length >= 2 && line.split(' ').length <= 4) {
-      const words = line.split(' ');
-      const allCapitalized = words.every(w => /^[A-Z][a-z]*$/.test(w));
-      if (allCapitalized) return line;
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  // Common: first non-empty line is name if short
+  if (lines.length > 0) {
+    const first = lines[0];
+    if (first.length > 2 && first.length < 60 && /^[A-Z][A-Za-z.'\-\s]+$/.test(first)) {
+      // simple heuristic
+      return first;
     }
   }
+  // fallback: search for "Name:" pattern
+  const m = text.match(/(?:Name|Full Name)[:\s]*([A-Z][A-Za-z.'\-\s]{2,40})/i);
+  if (m) return m[1].trim();
   return "Candidate";
 }
 
 function extractSkillsFromText(text) {
-  const skills = [];
   const skillKeywords = [
-    "JavaScript", "React", "Node.js", "Python", "Java", "HTML", "CSS", "SQL",
-    "MongoDB", "Express", "AWS", "Docker", "Git", "TypeScript", "Angular", "Vue",
-    "PHP", "C++", "C#", ".NET", "Spring", "MySQL", "PostgreSQL", "Redis",
-    "Kubernetes", "Azure", "Google Cloud", "REST API", "GraphQL", "Jenkins",
-    "CI/CD", "Agile", "Scrum", "Machine Learning", "Data Structures", "Algorithms"
+    "JavaScript", "React", "Node", "Node.js", "Python", "Java", "C++", "C#", "TypeScript",
+    "HTML", "CSS", "SQL", "MySQL", "PostgreSQL", "MongoDB", "Docker", "Kubernetes",
+    "AWS", "Azure", "Google Cloud", "GCP", "Spring", "Flask", "Django", "Express",
+    "REST API", "GraphQL", "Git", "CI/CD", "Jenkins", "Maven", "JUnit", "Machine Learning",
+    "Data Structures", "Algorithms", "React Native", "Next.js"
   ];
-  const lowerText = text.toLowerCase();
-  skillKeywords.forEach(skill => { if (lowerText.includes(skill.toLowerCase())) skills.push(skill); });
-  return [...new Set(skills)];
+  const lower = text.toLowerCase();
+  const found = skillKeywords.filter(s => lower.includes(s.toLowerCase()));
+  return [...new Set(found)];
 }
 
 function extractEducationFromText(text) {
-  // your implementation (kept minimal here)
   const education = [];
-  const lines = text.split('\n');
-  const educationKeywords = ["university", "college", "institute", "bachelor", "master", "phd", "degree", "diploma"];
+  const lines = text.split("\n");
+  const keywords = ["university", "college", "institute", "bachelor", "b.tech", "bsc", "master", "m.tech", "phd", "degree", "diploma"];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].toLowerCase();
-    if (educationKeywords.some(k => line.includes(k))) {
+    const l = lines[i].toLowerCase();
+    if (keywords.some(k => l.includes(k))) {
       const degree = lines[i].trim();
-      const institution = lines[i-1] ? lines[i-1].trim() : "Institution";
-      const year = extractYearFromText(lines[i]) || "2020";
-      education.push({ degree, institution, graduation_year: year });
+      const institution = i > 0 ? lines[i - 1].trim() : "Institution";
+      const year = extractYearFromText(lines[i]) || extractYearFromText(lines.slice(i, i + 3).join(" ")) || null;
+      education.push({
+        degree,
+        institution,
+        graduation_year: year || null
+      });
     }
   }
-  return education.length > 0 ? education : getDefaultEducation();
+  return education;
 }
 
 function extractWorkExperienceFromText(text) {
   const experience = [];
-  const lines = text.split('\n');
-  const jobTitleKeywords = ["developer","engineer","manager","analyst","specialist","consultant"];
+  const lines = text.split("\n");
+  const jobKeywords = ["developer", "engineer", "intern", "manager", "consultant", "analyst", "lead", "student"];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].toLowerCase();
-    if (jobTitleKeywords.some(k => line.includes(k))) {
-      const role = lines[i].trim();
-      const company = extractCompanyFromLine(lines[i]) || "Company";
-      const duration = extractDurationFromText(text) || "2021 - Present";
+    const l = lines[i].toLowerCase();
+    if (jobKeywords.some(k => l.includes(k))) {
+      const roleLine = lines[i].trim();
+      // try to capture company from same line or nearby lines
+      let company = "Company";
+      const cMatch = roleLine.match(/at\s+([A-Z][A-Za-z0-9 &.-]{2,50})/);
+      if (cMatch) company = cMatch[1].trim();
+      const duration = extractDurationFromText(roleLine) || extractDurationFromText(lines.slice(i, i + 5).join(" ")) || null;
       experience.push({
-        role,
+        role: roleLine,
         company,
-        duration,
-        description: [
-          "Responsible for various professional duties and projects",
-          "Collaborated with team members to achieve organizational goals",
-          "Developed and implemented solutions to business challenges"
-        ]
+        duration: duration || "Present",
+        description: ["No description provided"]
       });
     }
   }
-  return experience.length > 0 ? experience : getDefaultWorkExperience();
+  return experience;
 }
 
 function extractYearFromText(text) {
-  const yearMatch = text.match(/(19|20)\d{2}/);
-  return yearMatch ? yearMatch[0] : null;
+  const m = text.match(/(19|20)\d{2}/);
+  return m ? m[0] : null;
 }
 
 function extractCompanyFromLine(line) {
-  const words = line.split(' ').filter(w => /^[A-Z]/.test(w));
-  return words.length > 0 ? words[0] : "Company";
+  const words = line.split(" ").filter(w => /^[A-Z]/.test(w));
+  return words.length > 0 ? words[0] : null;
 }
 
 function extractDurationFromText(text) {
-  const durationMatch = text.match(/(20\d{2}\s*[-–]\s*(20\d{2}|Present|Current))/);
-  return durationMatch ? durationMatch[0] : "2021 - Present";
+  const m = text.match(/(20\d{2}\s*[-–]\s*(20\d{2}|Present|Current)|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec\s+\d{4}\s*[-–]\s*(Present|Current|\d{4}))/i);
+  return m ? m[0] : null;
 }
 
 function generateSummaryFromText(text, name) {
   const skills = extractSkillsFromText(text);
-  const skillText = skills.length > 0 ? `Proficient in ${skills.slice(0,3).join(', ')}` : "technical";
-  return `${name || "Experienced professional"} with strong ${skillText} skills. ${text.substring(0,100)}...`;
+  const skillText = skills.length > 0 ? `Proficient in ${skills.slice(0, 3).join(", ")}` : "skilled in software development";
+  return `${name || "Candidate"} - ${skillText}. ${text.substring(0, 120)}...`;
 }
 
 function calculateResumeRating(text) {
@@ -265,20 +369,20 @@ function calculateResumeRating(text) {
 function generateImprovementAreas(text) {
   const areas = [];
   const skills = extractSkillsFromText(text);
-  if (skills.length < 5) areas.push("Consider adding more technical skills to your resume");
-  if (!extractEmailFromText(text) || !extractPhoneFromText(text)) areas.push("Ensure contact information is clearly visible");
-  if (text.length < 500) areas.push("Provide more detailed descriptions of your experience and projects");
-  return areas.length > 0 ? areas.join('. ') : "Consider adding more quantifiable achievements and specific project outcomes.";
+  if (skills.length < 5) areas.push("Add more technical skills and relevant keywords.");
+  if (!extractEmailFromText(text) || !extractPhoneFromText(text)) areas.push("Add clear contact information.");
+  if (!extractLinkedIn(text)) areas.push("Add LinkedIn profile link.");
+  if (text.length < 500) areas.push("Provide more detail in work experience and project descriptions.");
+  return areas.join(" ");
 }
 
 function generateUpskillSuggestions(skills) {
   const suggestions = [];
-  if (!skills.includes("AWS") && !skills.includes("Azure") && !skills.includes("Google Cloud")) suggestions.push("Learn cloud technologies (AWS, Azure, or Google Cloud)");
-  if (!skills.includes("Docker") && !skills.includes("Kubernetes")) suggestions.push("Explore containerization and orchestration tools");
-  if (skills.includes("JavaScript") && !skills.includes("TypeScript")) suggestions.push("Learn TypeScript for better code quality");
-  suggestions.push("Practice system design concepts");
-  suggestions.push("Learn about microservices architecture");
-  return suggestions.slice(0,4);
+  if (!skills.includes("AWS") && !skills.includes("Azure") && !skills.includes("Google Cloud")) suggestions.push("Learn cloud fundamentals (AWS/Azure/GCP).");
+  if (!skills.includes("Docker") && !skills.includes("Kubernetes")) suggestions.push("Explore containerization and orchestration (Docker, Kubernetes).");
+  if (skills.includes("JavaScript") && !skills.includes("TypeScript")) suggestions.push("Learn TypeScript for stronger front-end code.");
+  suggestions.push("Practice system design and architecture.");
+  return suggestions.slice(0, 5);
 }
 
 function getDefaultWorkExperience() {
@@ -286,21 +390,29 @@ function getDefaultWorkExperience() {
     role: "Software Developer",
     company: "Technology Company",
     duration: "2021 - Present",
-    description: ["Developed and maintained web applications", "Collaborated with teams", "Implemented features"]
+    description: ["Developed and maintained web applications", "Collaborated with cross-functional teams"]
   }];
 }
 
 function getDefaultEducation() {
-  return [{ degree: "Bachelor of Science in Computer Science", institution: "University", graduation_year: "2020" }];
+  return [{
+    degree: "Bachelor's Degree",
+    institution: "University",
+    graduation_year: "2020"
+  }];
 }
 
 function getDefaultProjects() {
-  return [{ name: "Web App", description: "Full stack app", technologies: ["React","Node.js","MongoDB"] }];
+  return [{
+    name: "Web Application",
+    description: "Built a full-stack web application",
+    technologies: ["React", "Node.js", "MongoDB"]
+  }];
 }
 
-// Fallback wrapper (keeps your original fallback)
+// Fallback wrapper (keeps your original behavior)
 function getEnhancedAnalysisWithExtraction(text) {
-  console.log('Performing enhanced analysis with text extraction');
+  console.log("Performing enhanced extraction fallback.");
   const email = extractEmailFromText(text);
   const phone = extractPhoneFromText(text);
   const name = extractNameFromText(text);
@@ -312,13 +424,13 @@ function getEnhancedAnalysisWithExtraction(text) {
     name,
     email,
     phone,
-    linkedin_url: null,
-    portfolio_url: null,
+    linkedin_url: extractLinkedIn(text),
+    portfolio_url: extractPortfolio(text),
     summary: generateSummaryFromText(text, name),
-    work_experience: workExperience.length > 0 ? workExperience : getDefaultWorkExperience(),
-    education: education.length > 0 ? education : getDefaultEducation(),
+    work_experience: workExperience.length ? workExperience : getDefaultWorkExperience(),
+    education: education.length ? education : getDefaultEducation(),
     technical_skills: skills,
-    soft_skills: ["Communication","Teamwork","Problem Solving","Adaptability","Leadership"],
+    soft_skills: ["Communication", "Teamwork", "Problem Solving"],
     projects: getDefaultProjects(),
     certifications: [],
     resume_rating: calculateResumeRating(text),
@@ -328,4 +440,5 @@ function getEnhancedAnalysisWithExtraction(text) {
 }
 
 module.exports = { analyzeResume };
+
 
