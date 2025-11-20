@@ -236,28 +236,60 @@ function extractURLSFromText(text) {
   return urls;
 }
 
+// UPDATED: Better LinkedIn extraction
 function extractLinkedIn(text) {
   // Try to find explicit linkedin url
-  const ll = extractURLSFromText(text).find(u => /linkedin\.com/i.test(u));
-  if (ll) return ll;
-  // fallback: sometimes text includes 'linkedin: username' -> try capture
-  const m = text.match(/linkedin[:\s]*\/?in\/?([A-Za-z0-9-_%]+)/i);
-  if (m) {
-    return `https://www.linkedin.com/in/${m[1]}`;
+  const urls = extractURLSFromText(text);
+  const linkedinUrl = urls.find(u => /linkedin\.com/i.test(u));
+  if (linkedinUrl) return linkedinUrl;
+  
+  // Look for LinkedIn patterns in text
+  const linkedinPatterns = [
+    /linkedin\.com\/in\/([A-Za-z0-9-_.%]+)/i,
+    /linkedin\.com\/([A-Za-z0-9-_.%]+)/i,
+    /linkedin:\s*([A-Za-z0-9-_.%]+)/i,
+    /linkedin\s*\/\s*([A-Za-z0-9-_.%]+)/i,
+    /in\/\s*([A-Za-z0-9-_.%]+)/i
+  ];
+  
+  for (const pattern of linkedinPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const username = match[1] || match[0];
+      return `https://www.linkedin.com/in/${username}`;
+    }
   }
+  
   return null;
 }
 
+// UPDATED: Better Portfolio extraction
 function extractPortfolio(text) {
-  // Look for github, gitlab, vercel, netlify, portfolio keywords
+  // Look for portfolio URLs
   const urls = extractURLSFromText(text);
-  const portfolio = urls.find(u => /(github\.com|gitlab\.com|behance\.net|dribbble\.com|vercel\.app|netlify\.app|portfolio)/i.test(u));
-  if (portfolio) return portfolio;
-  // fallback patterns like "github: username" or "github.com/username"
-  const m = text.match(/(github\.com\/[A-Za-z0-9-._]+)/i);
-  if (m) {
-    return m[0].startsWith("http") ? m[0] : `https://${m[0]}`;
+  const portfolioUrls = urls.filter(u => 
+    /(github\.com|gitlab\.com|behance\.net|dribbble\.com|vercel\.app|netlify\.app|portfolio|github\.io|gitlab\.io)/i.test(u)
+  );
+  
+  if (portfolioUrls.length > 0) {
+    return portfolioUrls[0];
   }
+  
+  // Look for GitHub patterns
+  const githubPatterns = [
+    /github\.com\/([A-Za-z0-9-_.%]+)/i,
+    /github:\s*([A-Za-z0-9-_.%]+)/i,
+    /github\s*\/\s*([A-Za-z0-9-_.%]+)/i
+  ];
+  
+  for (const pattern of githubPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const username = match[1] || match[0];
+      return `https://github.com/${username}`;
+    }
+  }
+  
   return null;
 }
 
