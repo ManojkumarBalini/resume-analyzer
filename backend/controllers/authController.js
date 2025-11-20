@@ -70,7 +70,7 @@ exports.register = async (req, res, next) => {
       password
     });
 
-    // Generate email verification token (you can implement email sending later)
+    // Generate email verification token
     const verificationToken = user.getEmailVerificationToken();
     await user.save();
 
