@@ -192,6 +192,76 @@ const getResume = async (req, res) => {
   }
 };
 
+// @desc    Update resume
+// @route   PUT /api/resumes/:id
+// @access  Private
+const updateResume = async (req, res) => {
+  try {
+    let resume = await Resume.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    });
+
+    if (!resume) {
+      return res.status(404).json({
+        success: false,
+        error: 'Resume not found or access denied'
+      });
+    }
+
+    // Update fields
+    const allowedFields = ['name', 'email', 'phone', 'linkedin_url', 'portfolio_url', 'summary', 'is_public', 'tags'];
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        resume[field] = req.body[field];
+      }
+    });
+
+    await resume.save();
+
+    res.json({
+      success: true,
+      data: resume
+    });
+  } catch (error) {
+    console.error('Error updating resume:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// @desc    Delete resume
+// @route   DELETE /api/resumes/:id
+// @access  Private
+const deleteResume = async (req, res) => {
+  try {
+    const resume = await Resume.findOneAndDelete({
+      _id: req.params.id,
+      user: req.user.id
+    });
+
+    if (!resume) {
+      return res.status(404).json({
+        success: false,
+        error: 'Resume not found or access denied'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {}
+    });
+  } catch (error) {
+    console.error('Error deleting resume:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 // @desc    Get resume statistics
 // @route   GET /api/resumes/stats/overview
 // @access  Private
@@ -249,5 +319,7 @@ module.exports = {
   uploadResume,
   getResumes,
   getResume,
+  updateResume,
+  deleteResume,
   getResumeStats
 };
