@@ -14,10 +14,9 @@ const analyzeResume = async (text) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
     // Use the correct model - gemini-pro is the available model
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-pro"
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash"
     });
-
     // Enhanced prompt with strict JSON formatting
     const prompt = `Analyze the following resume text and extract information into a structured JSON format. Be thorough and extract as much real information as possible.
 
