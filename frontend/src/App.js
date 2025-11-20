@@ -87,7 +87,7 @@ function App() {
         </main>
         
         <footer className="App-footer">
-          <p>&copy; 2024 Resume Analyzer. Built by BALINI MANOJKUMAR.</p>
+          <p>&copy; 2025 Resume Analyzer. Built by BALINI MANOJKUMAR.</p>
         </footer>
       </div>
     </Router>
