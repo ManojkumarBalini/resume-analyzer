@@ -7,74 +7,98 @@ const { analyzeResume } = require('../services/geminiService');
 // @access  Private
 const uploadResume = async (req, res) => {
   try {
-    console.log('Upload resume request received');
+    console.log('=== UPLOAD RESUME REQUEST STARTED ===');
     
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        error: 'No file uploaded'
+        error: 'No file uploaded. Please select a PDF file.'
       });
     }
 
-    console.log(`Processing resume upload for user: ${req.user.id}`);
-    console.log(`File details: ${req.file.originalname}, Size: ${req.file.size} bytes`);
+    console.log(`Processing resume for user: ${req.user.id}`);
+    console.log(`File: ${req.file.originalname}, Size: ${req.file.size} bytes`);
 
-    // Parse PDF
+    // Step 1: Parse PDF
     let text;
     try {
+      console.log('Step 1: Parsing PDF...');
       text = await parsePDF(req.file.buffer);
-      console.log(`PDF parsed successfully. Text length: ${text.length} characters`);
+      console.log(`✓ PDF parsed successfully. Text length: ${text.length} characters`);
+      
+      if (!text || text.length < 50) {
+        throw new Error('PDF appears to be empty or contains very little text');
+      }
     } catch (parseError) {
-      console.error('PDF parsing error:', parseError);
+      console.error('✗ PDF parsing failed:', parseError);
       return res.status(400).json({
         success: false,
-        error: 'Failed to parse PDF file'
+        error: 'Failed to parse PDF file. The file may be corrupted or not a valid PDF.'
       });
     }
 
-    // Analyze with Gemini
+    // Step 2: Analyze with Gemini
     let analysisResult;
     try {
+      console.log('Step 2: Analyzing resume with Gemini AI...');
       analysisResult = await analyzeResume(text);
-      console.log('Resume analysis completed');
+      console.log('✓ Resume analysis completed successfully');
+      console.log('Analysis result sample:', {
+        name: analysisResult.name,
+        email: analysisResult.email,
+        skills: analysisResult.technical_skills?.length
+      });
     } catch (analysisError) {
-      console.error('Analysis error:', analysisError);
+      console.error('✗ Analysis failed:', analysisError);
       return res.status(500).json({
         success: false,
-        error: 'Failed to analyze resume content'
+        error: 'Failed to analyze resume content. Please try again.'
       });
     }
 
     // Validate analysis result
-    if (!analysisResult) {
+    if (!analysisResult || typeof analysisResult !== 'object') {
+      console.error('✗ Invalid analysis result:', analysisResult);
       return res.status(500).json({
         success: false,
-        error: 'Analysis returned empty result'
+        error: 'Analysis returned invalid result'
       });
     }
 
-    // Save to database with user reference
-    const resumeData = {
-      user: req.user.id,
-      file_name: req.file.originalname,
-      original_name: req.file.originalname,
-      file_size: req.file.size,
-      file_mimetype: req.file.mimetype,
-      ...analysisResult
-    };
+    // Step 3: Save to database
+    try {
+      console.log('Step 3: Saving to database...');
+      const resumeData = {
+        user: req.user.id,
+        file_name: req.file.originalname,
+        original_name: req.file.originalname,
+        file_size: req.file.size,
+        file_mimetype: req.file.mimetype,
+        ...analysisResult
+      };
 
-    const savedResume = await Resume.create(resumeData);
-    console.log(`Resume saved to database with ID: ${savedResume._id}`);
+      const savedResume = await Resume.create(resumeData);
+      console.log(`✓ Resume saved to database with ID: ${savedResume._id}`);
 
-    res.status(201).json({
-      success: true,
-      data: savedResume
-    });
+      res.status(201).json({
+        success: true,
+        message: 'Resume analyzed successfully',
+        data: savedResume
+      });
+      
+    } catch (dbError) {
+      console.error('✗ Database save failed:', dbError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save resume to database'
+      });
+    }
+
   } catch (error) {
-    console.error('Error processing resume:', error);
+    console.error('=== UPLOAD RESUME ERROR ===', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to process resume'
+      error: error.message || 'An unexpected error occurred while processing your resume'
     });
   }
 };
@@ -84,8 +108,6 @@ const uploadResume = async (req, res) => {
 // @access  Private
 const getResumes = async (req, res) => {
   try {
-    console.log('Fetching resumes for user:', req.user.id);
-    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -111,8 +133,6 @@ const getResumes = async (req, res) => {
     const total = await Resume.countDocuments(query);
     const totalPages = Math.ceil(total / limit);
 
-    console.log(`Found ${resumes.length} resumes for user ${req.user.id}`);
-
     res.json({
       success: true,
       data: resumes,
@@ -129,7 +149,7 @@ const getResumes = async (req, res) => {
     console.error('Error fetching resumes:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to fetch resumes'
     });
   }
 };
@@ -139,22 +159,18 @@ const getResumes = async (req, res) => {
 // @access  Private
 const getResume = async (req, res) => {
   try {
-    console.log('Fetching resume:', req.params.id, 'for user:', req.user.id);
-    
     const resume = await Resume.findOne({
       _id: req.params.id,
       user: req.user.id
     });
 
     if (!resume) {
-      console.log('Resume not found:', req.params.id);
       return res.status(404).json({
         success: false,
-        error: 'Resume not found or access denied'
+        error: 'Resume not found'
       });
     }
 
-    console.log('Resume found:', resume._id);
     res.json({
       success: true,
       data: resume
@@ -165,83 +181,13 @@ const getResume = async (req, res) => {
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
-        error: 'Invalid resume ID format'
+        error: 'Invalid resume ID'
       });
     }
     
     res.status(500).json({
       success: false,
-      error: error.message
-    });
-  }
-};
-
-// @desc    Update resume
-// @route   PUT /api/resumes/:id
-// @access  Private
-const updateResume = async (req, res) => {
-  try {
-    let resume = await Resume.findOne({
-      _id: req.params.id,
-      user: req.user.id
-    });
-
-    if (!resume) {
-      return res.status(404).json({
-        success: false,
-        error: 'Resume not found or access denied'
-      });
-    }
-
-    // Update fields
-    const allowedFields = ['name', 'email', 'phone', 'linkedin_url', 'portfolio_url', 'summary', 'is_public', 'tags'];
-    allowedFields.forEach(field => {
-      if (req.body[field] !== undefined) {
-        resume[field] = req.body[field];
-      }
-    });
-
-    await resume.save();
-
-    res.json({
-      success: true,
-      data: resume
-    });
-  } catch (error) {
-    console.error('Error updating resume:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
-
-// @desc    Delete resume
-// @route   DELETE /api/resumes/:id
-// @access  Private
-const deleteResume = async (req, res) => {
-  try {
-    const resume = await Resume.findOneAndDelete({
-      _id: req.params.id,
-      user: req.user.id
-    });
-
-    if (!resume) {
-      return res.status(404).json({
-        success: false,
-        error: 'Resume not found or access denied'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {}
-    });
-  } catch (error) {
-    console.error('Error deleting resume:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
+      error: 'Failed to fetch resume'
     });
   }
 };
@@ -251,8 +197,6 @@ const deleteResume = async (req, res) => {
 // @access  Private
 const getResumeStats = async (req, res) => {
   try {
-    console.log('Fetching resume stats for user:', req.user.id);
-    
     const totalResumes = await Resume.countDocuments({ user: req.user.id });
     
     const averageRatingResult = await Resume.aggregate([
@@ -283,24 +227,20 @@ const getResumeStats = async (req, res) => {
       { $limit: 6 }
     ]);
 
-    const stats = {
-      totalResumes,
-      averageRating: averageRatingResult[0]?.avgRating || 0,
-      topSkills: skillStats,
-      monthlyUploads: monthlyStats
-    };
-
-    console.log('Resume stats:', stats);
-    
     res.json({
       success: true,
-      data: stats
+      data: {
+        totalResumes,
+        averageRating: averageRatingResult[0]?.avgRating || 0,
+        topSkills: skillStats,
+        monthlyUploads: monthlyStats
+      }
     });
   } catch (error) {
     console.error('Error fetching resume stats:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to fetch statistics'
     });
   }
 };
@@ -309,7 +249,5 @@ module.exports = {
   uploadResume,
   getResumes,
   getResume,
-  updateResume,
-  deleteResume,
   getResumeStats
 };
