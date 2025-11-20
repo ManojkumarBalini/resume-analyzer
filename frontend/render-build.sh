@@ -14,3 +14,7 @@ echo "Build completed successfully!"
 # Print environment info for debugging
 echo "Environment: $REACT_APP_ENVIRONMENT"
 echo "API URL: $REACT_APP_API_URL"
+
+# List the build directory to verify it exists
+echo "Build directory contents:"
+ls -la build/
